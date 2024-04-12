@@ -5,9 +5,16 @@
 This HIP proposes a design for the Hyperlane AVS building on top of Eigenlayer protocol to utilitise the economic security for messages outbound from Ethereum and subsequently its rollups. Currently, this proposal comprises of the following functions:
 
 - Allow eigenlayer operators to register/deregister themselves to the AVS as validators for any chain
+    - Creating hyperlaneAVS contract
+    - Modify validator client to produce ECDSA stake registry signature and post to s3 (like validator announce)
+    - CLI command to register/deregister operator to AVS - ask EL if they support registering on arbitrary stakeRegistry or do we need to add this to the CLI
 - Allow stakers to delegate their stake to the operators for the specific strategy.
+    -  Configure and deploy the strategy contracts manually.
+- Anticipate non-eigenlayer staking.
 - Anticipate permissionless slashing of opt-in operators by the ISM
 - Enable easy management of staked operators and maintain availability of operators for the ISMs - OOS
+
+
 
 **Architecture**
 
@@ -55,7 +62,7 @@ contract HyperlaneAVS is IServiceManager, OwnableUpgradeable {
 ```
 
 -> the stakeRegistry has a single thresholdWeight, totalWeight for the AVS which is used for \_validateThresholdState
--> threshold weight is 66% of the total?
+-> threshold weight is 66% of the total? - not relevant 
 -> updating operator weights?
 
 Workflow for deploying Hyperlane and configuring validating on rollupA, rollupB
@@ -102,8 +109,8 @@ Deregistering
 
 Workflow for ISMs
 
-- selects restaked validator in your ISM.
--
+- selects restaked validator in your ISM manually.
+
 
 ### Workflow for slashing
 
@@ -135,18 +142,20 @@ Scope for first milestone
 - Contracts
 
   - UML diagrams for contract interactions - 1 day
-  - HyperlaneAVS - 2 day
-  - General staking interface IStakingManager and loose interactsions for native staking, restaking for Karak, etc - 2 day
-  - tests for different configuration of different strategies, slasher configuration, etc (using the EL harness) - 3 day
-  - StakeWeightMultisigISM (optional) - NA
+  - HyperlaneAVS - 1 day
+  - tests for mocking eigenlayer contracts in the ServiceManager - 1 day
+  - StakeWeightMultisigISM (optional) - OOS
+  - General staking interface IStakingManager and loose interactions for native staking, restaking for Karak, etc - OOS
 
 - Agent work
 
-  - Full node spec compliance - [link](https://docs.eigenlayer.xyz/category/node-specification) - hardcoded right now - NA
-  - relayer changes for StakeWeightMultisigISM - NA
+  - Validator client changes for s3 posting - 3 days
+  - Full node spec compliance - [link](https://docs.eigenlayer.xyz/category/node-specification) - hardcoded right now - OOS
+  - relayer changes for StakeWeightMultisigISM - OOS
 
 - Deployments
   - Holesky deployment of Hyperlane core - 0.5 day
+  - CLI command for opt-in/out of AVS - 2 days
   - Deploy the AVS contracts and (configure the AW validators) - 2 days
   - e2e test in CI - OOS
 - Guide for operators to (de)register with Hyperlane AVS, node classes/requirements, etc + giving EL the - 1.5 day
@@ -154,8 +163,13 @@ Scope for first milestone
 **Open questions**
 
 - recording stake globally?
+    - punting, solved with the challenger mapping
 - churn for operators?
+    - MAX_UINT32
 - minimum stake requirment for operators?
+    - 0
+- business questions for the validators?
+    - are there requirements from the operator side to be included in the AVS - incentives, etc.
 
 Eigenlayer
 
