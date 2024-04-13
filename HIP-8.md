@@ -16,13 +16,62 @@ This HIP proposes a design for the Hyperlane AVS building on top of Eigenlayer p
 
 **Architecture**
 
+WIP
+
+```mermaid
+classDiagram
+namespace Contracts {
+  class ECDSAStakeRegistry {
+    address delegationManager
+    Quorum _quorum
+
+    registerOperatorWithSignature(operator, signature)
+    updateQuorumConfig(quorum, operators[])
+  }
+  class IServiceManager {
+    <<interface>>
+
+    registerOperatorToAVS(operator,signature)
+    deregisterOperatorFromAVS(operator)
+    getOperatorRestakedStrategies(operator)
+  }
+  class HyperlaneServiceManager {
+    enrolledChallengers: address => IRemoteChallenger
+
+    enroll()
+    startUnenroll()
+    finishUnenroll()
+
+  }
+  class IRemoteChallenger {
+    <<interface>>
+    handleChallenge()
+    getDelayBlocks()
+  }
+  class ISlasher {
+    <<interface>>
+
+    freezeOperator()
+  }
+}
+
+
+ECDSAStakeRegistry..>IServiceManager
+HyperlaneServiceManager..>ECDSAStakeRegistry
+HyperlaneServiceManager..> IRemoteChallenger
+HyperlaneServiceManager..> ISlasher
+
+IServiceManager<|--HyperlaneServiceManager: implements
+
+```
+
 **Interface**
 
 ```solidity
 contract HyperlaneAVS is IServiceManager, OwnableUpgradeable {
     IStakeRegistry internal immutable stakeRegistry;
     IAVSDirectory internal immutable _avsDirectory;
-    mapping(address => EnumerableMap.AddressToBool (IChallenger => bool)) internal optInChallengers;
+    mapping(address => EnumerableMap.AddressToBool (IChallenger => bool)) internal enrolledChallengers;
 
 
     modifier onlyStakeRegistry() {
@@ -43,20 +92,20 @@ contract HyperlaneAVS is IServiceManager, OwnableUpgradeable {
 
     function enrollIntoChallengers(IChallenger challengers[]) public virtual {
         for (uint256 i = 0; i < challengers.length; i++) {
-            optInChallengers[operator][challengers[i]] = ENROLLED;
+            enrolledChallengers[operator][challengers[i]] = ENROLLED;
         }
     }
 
     function startUnenrollmentFromChallengers(IChallenger challengers[]) public virtual {
         for (uint256 i = 0; i < challengers.length; i++) {
-            optInChallengers[operator][challengers[i]] = UNENROLLMENT_QUEUE;
+            enrolledChallengers[operator][challengers[i]] = UNENROLLMENT_QUEUE;
         }
     }
 
     function finishUnenrollmentFromChallengers(IChallenger challengers[]) public virtual {
         for (uint256 i = 0; i < challengers.length; i++) {
             // check for delayed blocks
-            optInChallengers[operator][challengers[i]] = UNENROLLED;
+            enrolledChallengers[operator][challengers[i]] = UNENROLLED;
         }
     }
 
