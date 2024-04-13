@@ -1,4 +1,4 @@
-# Hyperlane AVS (WIP)
+# Hyperlane AVS v1
 
 ### Goal
 
@@ -68,7 +68,6 @@ Q. the stakeRegistry has a single thresholdWeight, totalWeight for the AVS which
 Q. threshold weight is 66% of the total? - not relevant
 
 Q. updating operator weights?
-
 
 ### Workflow for registering
 
@@ -164,7 +163,6 @@ interface IRemoteChallenger extends MailboxClient {
 - The remoteChallenger calls the serviceManager which calls the slasher.
 - The serviceManager checks if the operator is registered for the challenger and if it is, it calls the slasher to slash the operator.
 
-
 ### Workflow for deploying Hyperlane and configuring validating on rollupA, rollupB
 
 - deploy ecdsaRegistry
@@ -228,8 +226,6 @@ Q. From EL (4/10), some of the items for launching mainnet:
   - 0
 - business questions for the validators?
   - are there requirements from the operator side to be included in the AVS - incentives, etc.
-
-
 
 ### Appendix
 
