@@ -5,16 +5,14 @@
 This HIP proposes a design for the Hyperlane AVS building on top of Eigenlayer protocol to utilitise the economic security for messages outbound from Ethereum and subsequently its rollups. Currently, this proposal comprises of the following functions:
 
 - Allow eigenlayer operators to register/deregister themselves to the AVS as validators for any chain
-    - Creating hyperlaneAVS contract
-    - Modify validator client to produce ECDSA stake registry signature and post to s3 (like validator announce)
-    - CLI command to register/deregister operator to AVS - ask EL if they support registering on arbitrary stakeRegistry or do we need to add this to the CLI
+  - Creating hyperlaneAVS contract
+  - Modify validator client to produce ECDSA stake registry signature and post to s3 (like validator announce)
+  - CLI command to register/deregister operator to AVS - ask EL if they support registering on arbitrary stakeRegistry or do we need to add this to the CLI
 - Allow stakers to delegate their stake to the operators for the specific strategy.
-    -  Configure and deploy the strategy contracts manually.
+  - Configure and deploy the strategy contracts manually.
 - Anticipate non-eigenlayer staking.
 - Anticipate permissionless slashing of opt-in operators by the ISM
 - Enable easy management of staked operators and maintain availability of operators for the ISMs - OOS
-
-
 
 **Architecture**
 
@@ -34,38 +32,140 @@ contract HyperlaneAVS is IServiceManager, OwnableUpgradeable {
 
     function registerOperatorToAVS(
         address operator,
-        ISignatureUtils.SignatureWithSaltAndExpiry memory operatorSignature,
-        IChallenger[] memory challengers
+        ISignatureUtils.SignatureWithSaltAndExpiry memory operatorSignature
     ) public virtual onlyStakeRegistry {
         _avsDirectory.registerOperatorToAVS(operator, operatorSignature);
-        for (uint256 i = 0; i < challengers.length; i++) {
-            optInChallengers[operator][challengers[i]] = true;
-        }
     }
 
     function deregisterOperatorFromAVS(address operator) public virtual onlyStakeRegistry {
-        for (uint256 i = 0; i < optInChallengers[operator].length; i++) {
-            optInChallengers[operator][optInChallengers[operator].at(i)] = false;
-        }
         _avsDirectory.deregisterOperatorFromAVS(operator);
     }
 
-    function optIntoChallenger(IChallenger challenger) public virtual {
-        optInChallengers[msg.sender][challenger] = true;
+    function enrollIntoChallengers(IChallenger challengers[]) public virtual {
+        for (uint256 i = 0; i < challengers.length; i++) {
+            optInChallengers[operator][challengers[i]] = ENROLLED;
+        }
     }
 
-    function optOutOfChallenger(IChallenger challenger) public virtual {
-        optInChallengers[msg.sender][challenger] = false;
+    function startUnenrollmentFromChallengers(IChallenger challengers[]) public virtual {
+        for (uint256 i = 0; i < challengers.length; i++) {
+            optInChallengers[operator][challengers[i]] = UNENROLLMENT_QUEUE;
+        }
+    }
+
+    function finishUnenrollmentFromChallengers(IChallenger challengers[]) public virtual {
+        for (uint256 i = 0; i < challengers.length; i++) {
+            // check for delayed blocks
+            optInChallengers[operator][challengers[i]] = UNENROLLED;
+        }
     }
 
 }
 ```
 
--> the stakeRegistry has a single thresholdWeight, totalWeight for the AVS which is used for \_validateThresholdState
--> threshold weight is 66% of the total? - not relevant 
--> updating operator weights?
+Q. the stakeRegistry has a single thresholdWeight, totalWeight for the AVS which is used for \_validateThresholdState
 
-Workflow for deploying Hyperlane and configuring validating on rollupA, rollupB
+Q. threshold weight is 66% of the total? - not relevant
+
+Q. updating operator weights?
+
+
+### Workflow for registering
+
+PREREQ: registered as an Eigenlayer Operator (through their CLI)
+
+```mermaid
+sequenceDiagram
+  box Ethereum L1
+    actor Operator
+    participant ECDSAStakeRegistry
+    participant HSM
+    participant AVSDirectory
+  end
+
+Operator->>ECDSAStakeRegistry: registerOperatorWithSignature(operator,operatorSignature)
+ECDSAStakeRegistry->>HSM: registerOperatorToAVS(operator,operatorSignature)
+HSM->>AVSDirectory: registerOperatorToAVS(operator,operatorSignature)
+Operator->>HSM: enrollForChallengers(challenger[])
+```
+
+Notes:
+
+We need operators to enroll into specific challengers to allow for permissionless slashing by any ISM deployers. As an operator, you can inspect every remote challenger and choose for yourself which ones you want to opt into depending on risk vs reward. This also means Abacus Works won't be the bottleneck for adding challengers for different rollup stacks. The operators will be able to unenroll after the unenrollment delay blocks has passed.
+
+TODO: workflow for deregistering
+
+### Workflow for staking
+
+```mermaid
+sequenceDiagram
+  box Ethereum L1
+    actor Staker
+    participant DelegationManager
+    participant StrategyManager
+    participant Strategy1
+
+  end
+
+Staker->>DelegationManager: delegateTo(operator,approverSignatureAndExpiry)
+Staker->>StrategyManager: depositIntoStrategy(strategy,token,amt)
+StrategyManager->>Strategy1: token.transferFrom(sender, strategy, amount)
+StrategyManager->>DelegationManager: increaseDelegatedShares
+```
+
+Notes:
+
+- Strategy1, Strategy2, etc will be deployed by Abacus Works (but written by EL)
+- Replace `StrategyManager` by `EigenPodManager` and you get the same flow for native restaking
+- Delegation is all-or-nothing: when a Staker delegates to an Operator, they delegate ALL their shares.
+- If the operator has a `delegationApprover`, the caller MUST provide a valid `approverSignatureAndExpiry` and `approverSalt`.
+- the deposit function can also be called by way of a signature by anyone besides the staker (esp operator) [more details]()
+
+### Workflow for ISMs
+
+- select and update restaked validators in your ISM manually.
+
+### Workflow for slashing
+
+```mermaid
+sequenceDiagram
+  box Origin Chain
+    actor Watcher
+    participant NativeChallenger
+  end
+
+  box Ethereum L1
+    participant RemoteChallenger
+    participant HSM
+    participant Slasher
+    actor Operator
+  end
+
+
+Watcher->>NativeChallenger: challenge(addresss, bytes32,bytes32)
+NativeChallenger->>RemoteChallenger: "handleChallenge(address)" via nativeBridge
+RemoteChallenger->>HSM: postChallenge(address)
+HSM-->>Operator: checkIfEnrolled(address)
+Operator-->>HSM: return true/false
+HSM->>Slasher: freezeOperator(address)
+```
+
+**Interface**
+
+```solidity
+interface IRemoteChallenger extends MailboxClient {
+    uint256 unenrollmentDelyaedBlocks = 50400;
+    function handleChallenge(address operator) external;
+}
+```
+
+- Let's assume an operator signs up for a specific IChallenger[] list which includes (say rollupA remote challenger).
+- A watcher will call the INativeChallenger from the destination chain where the double signing was detected. It checks the signed root against the correct root and if it doesn't match the correct root, it will calls the remoteChallenger on the L1 via the native bridge.
+- The remoteChallenger calls the serviceManager which calls the slasher.
+- The serviceManager checks if the operator is registered for the challenger and if it is, it calls the slasher to slash the operator.
+
+
+### Workflow for deploying Hyperlane and configuring validating on rollupA, rollupB
 
 - deploy ecdsaRegistry
 
@@ -86,49 +186,7 @@ for (domains) {
 
 ```
 
-Workflow for operators as a hyperlane validator
-
-Registering
-
-- register operator with Eigenlayer via
-  ELDelegationManager.registerAsOperator(
-  OperatorDetails { feeReceiver = self, address delegationApprover=self, stakerOptOutWindowBlocks = 0},
-  metadataURI = "example operator"
-  )
-
-- register operator with Hyperlane AVS via
-
-  registryController.register
-
-Operation
-
-- does the work as a normal validator
-- if the operator double signs, the slasher will slash the operator
-
-Deregistering
-
-Workflow for ISMs
-
-- selects restaked validator in your ISM manually.
-
-
-### Workflow for slashing
-
-**Interface**
-
-```solidity
-interface IChallenger {
-    function slashOperator(address operator, bytes32 signedRoot, bytes32 correctRoot) external;
-}
-
-```
-
-- Let's assume an operator signs up for a specific IChallenger[] list which includes (say rollupA remote challenger).
-- A watcher will call the INativeChallenger from the destination chain where the double signing was detected. It checks the signed root against the correct root and if it doesn't match the correct root, it will calls the remoteChallenger on the L1 via the native bridge.
-- The remoteChallenger calls the stakingManager and then serviceManager which calls the slasher.
-- The serviceManager checks if the operator is registered for the challenger and if it is, it calls the slasher to slash the operator.
-
-Q From EL (4/10), some of the items for launching mainnet:
+Q. From EL (4/10), some of the items for launching mainnet:
 
 1. let us know your hardware requirements for operators, we'll make intros to the Eigen operators to test your software so you can get started this or next week, you need at least 20 Eigen node operators to launch on mainnet and 10 of them overlapping with other AVSs
 2. get whitelisted on the testnet frontend
@@ -137,7 +195,7 @@ Q From EL (4/10), some of the items for launching mainnet:
 5. Operator ready: tested with Eigen operators, good operator documentation, sufficient operator support ready
 6. Lastly, get whitelisted on our mainnet frontend
 
-Scope for first milestone
+### Scope for first milestone
 
 - Contracts
 
@@ -163,17 +221,19 @@ Scope for first milestone
 **Open questions**
 
 - recording stake globally?
-    - punting, solved with the challenger mapping
+  - punting, solved with the challenger mapping
 - churn for operators?
-    - MAX_UINT32
+  - MAX_UINT32
 - minimum stake requirment for operators?
-    - 0
+  - 0
 - business questions for the validators?
-    - are there requirements from the operator side to be included in the AVS - incentives, etc.
+  - are there requirements from the operator side to be included in the AVS - incentives, etc.
 
-Eigenlayer
 
-Contracts
+
+### Appendix
+
+**StakeRegistry**
 
 A quorum is a grouping and configuration of specific kinds of stake that an AVS considers when interacting with Operators. When Operators register for an AVS, they select one or more quorums within the AVS to register for.
 
@@ -189,8 +249,6 @@ How does this impact the fee rewards for the stakers, earn per message and then 
 
 and minWithdrawalDelayBlocks = 50400 (1 week) for operators for EL M2
 
-ISM verification cost
+**ISM verification cost**
 
 Approximate ECDSA verification cost is 219k for 10/18, 273420k for 18/18. But, we give the ISM the ability to set the threshold for their own quorum so this shouldn't be a problem. Note: revisit.
-
-HyperlaneAVS tells the AVS directory of the up-to-date status of each operator in the specific AVS.
