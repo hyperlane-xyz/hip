@@ -23,7 +23,7 @@ classDiagram
 namespace Contracts {
   class ECDSAStakeRegistry {
     address delegationManager
-    Quorum _quorum
+    quorum: (IStrategy[], muliplier)
 
     registerOperatorWithSignature(operator, signature)
     updateQuorumConfig(quorum, operators[])
@@ -45,6 +45,7 @@ namespace Contracts {
   }
   class IRemoteChallenger {
     <<interface>>
+
     handleChallenge()
     getDelayBlocks()
   }
@@ -53,13 +54,25 @@ namespace Contracts {
 
     freezeOperator()
   }
+  class IStrategy {
+    <<interface>>
+
+    deposit(token,amt)
+    withdraw(token,amt)
+  }
+
+  class StrategyManager {
+    depositIntoStrategy()
+  }
 }
 
 
 ECDSAStakeRegistry..>IServiceManager
+ECDSAStakeRegistry..>IStrategy
 HyperlaneServiceManager..>ECDSAStakeRegistry
 HyperlaneServiceManager..> IRemoteChallenger
 HyperlaneServiceManager..> ISlasher
+StrategyManager..>IStrategy: transferFrom
 
 IServiceManager<|--HyperlaneServiceManager: implements
 
@@ -164,7 +177,7 @@ StrategyManager->>DelegationManager: increaseDelegatedShares
 Notes:
 
 - Strategy1, Strategy2, etc will be deployed by Abacus Works (but written by EL)
-- Replace `StrategyManager` by `EigenPodManager` and you get the same flow for native restaking
+- Replace `StrategyManager` by `EigenPodManager` and you get the same flow for native restaking. Are you sure? TODO
 - Delegation is all-or-nothing: when a Staker delegates to an Operator, they delegate ALL their shares.
 - If the operator has a `delegationApprover`, the caller MUST provide a valid `approverSignatureAndExpiry` and `approverSalt`.
 - the deposit function can also be called by way of a signature by anyone besides the staker (esp operator) [more details]()
